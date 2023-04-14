@@ -1,0 +1,307 @@
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Mahony_BMX160.h>
+#include <Madgwick_BMX160.h>
+#include <DPEng_BMX160.h>
+
+DPEng_BMX160 dpEng = DPEng_BMX160(0x160A, 0x160B, 0x160C);
+
+float mag_offsets[3]            = { 9.83F, 4.42F, -6.97F };
+
+float mag_softiron_matrix[3][3] = { {  0.586,  0.006,  0.001 },
+                                    {  0.006,  0.601, -0.002 },
+                                    {  0.001,  -0.002,  2.835 } };
+
+float mag_field_strength        = 56.33F;
+
+float gyro_zero_offsets[3]      = { 0.0F, 0.0F, 0.0F };
+
+Mahony_BMX160 filter;
+
+
+const int buttonPin = 2;     // the number of the pushbutton pin
+int buttonState = 0;
+int pbuttonState = 0;
+
+const int FLEX_PIN = A0; // 电压采集接口
+const int FLEX_PIN1 = A1; // 电压采集接口
+const int FLEX_PIN2 = A2;
+const int FLEX_PIN3 = A3;
+const int FLEX_PIN4 = A4;
+
+// Measure the voltage at 5V and the actual resistance of your// 100k resistor, and enter them below:
+const float VCC = 5.0; // 模块供电电压，ADC参考电压为V
+const float VCC1 = 5.0;
+const float VCC2 = 5.0;
+const float VCC3 = 5.0;
+const float VCC4 = 5.0;
+
+const float R_DIV = 100000.0; // 分压电阻为100KΩ
+const float R_DIV1 = 100000.0;
+const float R_DIV2 = 100000.0;
+const float R_DIV3 = 100000.0;
+const float R_DIV4 = 100000.0;
+
+// Upload the code, then try to adjust these values to more// accurately calculate bend degree.
+const float STRAIGHT_RESISTANCE = 18655.0; // 平直时的电阻值
+const float STRAIGHT_RESISTANCE1 = 18655.0;
+const float STRAIGHT_RESISTANCE2 = 18655.0;
+const float STRAIGHT_RESISTANCE3 = 18655.0;
+const float STRAIGHT_RESISTANCE4 = 18655.0;
+
+const float BEND_RESISTANCE = 43820.0; // 90度弯曲时的电阻值
+const float BEND_RESISTANCE1 = 43820.0;
+const float BEND_RESISTANCE2 = 43820.0;
+const float BEND_RESISTANCE3 = 43820.0;
+const float BEND_RESISTANCE4 = 43820.0;
+
+bool change = true;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(FLEX_PIN, INPUT);
+  pinMode(FLEX_PIN1, INPUT);
+  pinMode(FLEX_PIN2, INPUT);
+  pinMode(FLEX_PIN3, INPUT);
+  pinMode(FLEX_PIN4, INPUT);
+  pinMode(buttonPin, INPUT);
+
+
+  //Serial.println(F("DPEng AHRS Fusion Example")); 
+  //Serial.println("");
+  if(!dpEng.begin(BMX160_ACCELRANGE_4G, GYRO_RANGE_250DPS)){
+    //Serial.println("Ooops, no BMX160 detected ... Check your wiring!");
+    //while(1);
+  }
+  
+  filter.begin();
+}
+
+void loop(void){
+  int flexADC = analogRead(FLEX_PIN);
+  float flexV = flexADC * VCC / 1024.0;
+  float flexR = R_DIV * (VCC / flexV - 1.0);
+
+  float angle = map(flexR, STRAIGHT_RESISTANCE, BEND_RESISTANCE, 0, 90.0);
+
+
+  int flexADC1 = analogRead(FLEX_PIN1);
+  float flexV1 = flexADC1 * VCC1 / 1024.0;
+  float flexR1 = R_DIV1 * (VCC1 / flexV1 - 1.0);
+
+  float angle1 = map(flexR1, STRAIGHT_RESISTANCE1, BEND_RESISTANCE1, 0, 80.0);
+
+
+  int flexADC2 = analogRead(FLEX_PIN2);
+  float flexV2 = flexADC2 * VCC2 / 1024.0;
+  float flexR2 = R_DIV2 * (VCC2 / flexV2 - 1.0);
+
+  float angle2 = map(flexR2, STRAIGHT_RESISTANCE2, BEND_RESISTANCE2, 0, 90.0);
+
+
+  int flexADC3 = analogRead(FLEX_PIN3);
+  float flexV3 = flexADC3 * VCC3 / 1024.0;
+  float flexR3 = R_DIV3 * (VCC3 / flexV3 - 1.0);
+
+  float angle3 = map(flexR3, STRAIGHT_RESISTANCE3, BEND_RESISTANCE3, 0, 100.0);
+
+
+  int flexADC4 = analogRead(FLEX_PIN4);
+  float flexV4 = flexADC4 * VCC4 / 1024.0;
+  float flexR4 = R_DIV4 * (VCC4 / flexV4 - 1.0);
+
+  float angle4 = map(flexR4, STRAIGHT_RESISTANCE4, BEND_RESISTANCE4, 0, 20.0);
+
+
+  Serial.println(String(angle) + "/" + String(angle1) + "/" + String(angle2) + "/" + String(angle3) + "/" + String(angle4));
+  Serial.println();
+
+//    buttonState = digitalRead(buttonPin);
+//    if (buttonState == HIGH && pbuttonState == LOW) {
+//       change = true;
+//       count++;
+//       }
+//
+//    if (buttonState == LOW && pbuttonState == HIGH) {
+//      Serial.print('\n');
+//      change = false;
+//    }
+//
+//     pbuttonState = buttonState;
+
+
+  sensors_event_t accel_event;
+  sensors_event_t gyro_event;
+  sensors_event_t mag_event;
+
+  // Get new data samples
+  dpEng.getEvent(&accel_event, &gyro_event, &mag_event);
+
+  // Apply mag offset compensation (base values in uTesla)
+  float x = mag_event.magnetic.x - mag_offsets[0];
+  float y = mag_event.magnetic.y - mag_offsets[1];
+  float z = mag_event.magnetic.z - mag_offsets[2];
+
+  // Apply mag soft iron error compensation
+  float mx = x * mag_softiron_matrix[0][0] + y * mag_softiron_matrix[0][1] + z * mag_softiron_matrix[0][2];
+  float my = x * mag_softiron_matrix[1][0] + y * mag_softiron_matrix[1][1] + z * mag_softiron_matrix[1][2];
+  float mz = x * mag_softiron_matrix[2][0] + y * mag_softiron_matrix[2][1] + z * mag_softiron_matrix[2][2];
+
+  // Apply gyro zero-rate error compensation
+  float gx = gyro_event.gyro.x + gyro_zero_offsets[0];
+  float gy = gyro_event.gyro.y + gyro_zero_offsets[1];
+  float gz = gyro_event.gyro.z + gyro_zero_offsets[2];
+
+  // Update the filter
+  filter.update(gx, gy, gz,
+                accel_event.acceleration.x, accel_event.acceleration.y, accel_event.acceleration.z,
+                mx, my, mz,
+        mag_event.timestamp);
+
+  float roll = filter.getRoll();
+  float pitch = filter.getPitch();
+  float heading = filter.getYaw();
+
+  //Serial.print(heading);
+  //Serial.print(" ");
+  //Serial.print(pitch);
+  //Serial.print(" ");
+  //Serial.println(roll);
+
+  delay(500);
+
+  if(roll > 100 && roll < 150 && change){
+    //垂直桌面状态：roll;
+    //if((heading < 65 && heading > 0)||(heading > 300)){
+    //if(abs(pitch) < 15){  
+         if (angle3 < 40) {
+           if(angle2 < 40){
+             if(angle1 < 40){
+               if(angle < 40){
+                 Serial.print("b/");
+               }else{
+                 Serial.print("w/");
+               }
+             }else{
+               Serial.print("h/");
+ 
+             }
+           }else if(angle2 > 100 && angle1 > 100 && angle < 40){
+             Serial.print("t/");
+           }else if(angle2 > 100 && angle1 > 100 && angle > 100){
+             Serial.print("i/");
+           }
+         }
+         
+         if(angle3 > 30 && angle3 < 35 && angle2 < 35 && angle > 100 && angle1 > 100)Serial.print("x/");
+         
+         if(angle > 90){
+          if(angle1 > 70 && angle1 < 100){
+            if(angle2 > 70 && angle2 < 100){
+              if(angle3 > 70 && angle3 < 100){
+                Serial.print("m/");
+                }
+              }
+            }
+         }
+         
+         if(angle > 100 && angle1 > 100){
+           if(angle2 > 70 && angle2 < 100){
+             if(angle3 > 70 && angle3 < 100){
+               Serial.print("n/");
+             }
+           }
+         }
+    }
+
+    if(roll > 70 && roll < 100 && change){
+    //举手状态：pitch roll;
+    //if(heading > 70 && heading < 160){
+    //if(abs(pitch) < 30 && abs(pitch) > 15){
+      if(angle3 < 100 && angle3 > 70){
+        if(angle2 < 100 && angle2 > 70){
+          if(angle1 < 100 && angle1 > 70){
+            if(angle < 50 && angle > 35)Serial.print("c/");
+          }
+        }
+      }
+
+      if(angle3 < 80 && angle3 > 50){
+        if(angle2 < 80 && angle2 > 50){
+          if(angle1 < 100 && angle1 > 50){
+            if(angle < 50 && angle > 35)Serial.print("s/");
+            }
+          }
+        }
+      
+      if(angle2 < 100 && angle2 > 50){
+          if(angle3 < 40 && angle1 > 120 && angle > 120)Serial.print("k/");
+        }
+
+      if(angle3 < 80 && angle3 > 50){
+        if(angle2 < 100 && angle2 > 50){
+            if(angle1 > 120 && angle > 105)Serial.print("sh/");
+          }
+        }
+      
+      if(angle3 > 130 && angle2 > 130 && angle1 > 130 && angle > 100){
+        Serial.print("d/");
+      }
+
+      if(angle3 < 130 && angle3 > 90){
+        if(angle2 < 150 && angle2 > 90){
+          if(angle1 < 130 && angle1 > 90){
+            if(angle < 90 && angle > 60){
+              Serial.print("o/");
+             }
+            }
+          }
+        }
+
+      if(angle3 < 120 && angle3 > 70){
+          if(angle2 > 120 && angle1 > 120 && angle > 100){
+            Serial.print("j/");
+            }
+        }
+      }
+  
+
+  if(change){
+    if(roll < -60 || roll > 20){
+      if(angle3 > 100 && angle2 > 100 && angle1 > 100 && angle < 40)Serial.print("y/");
+    }
+  }
+  
+  //横垂直桌面状态：heading pitch;
+  if(roll < 20 && roll > -60 && change){
+      if(angle3 < 40){
+        if(angle2 < 40){
+            if(angle1 < 40){
+
+            }else if(angle < 40){
+              Serial.print("zh/");
+            }else{
+              Serial.print("f/");
+            }
+         }else if(angle < 40){
+           Serial.print("z/");
+         }else{
+           Serial.print("g/");
+         }
+       }else if(angle2 < 40){
+         Serial.print("e/");
+       }else if(angle < 40){
+         Serial.print("ng/");
+       }else{
+         Serial.print("a/");
+       }
+  }
+    
+  //负垂直桌面状态：roll;
+   if(roll > -170 && roll < -75 && change){
+    if(angle3 > 90 && angle2 < 40 && angle1 < 40 && angle < 40){
+      Serial.print("p/");
+     }    
+    }
+}
